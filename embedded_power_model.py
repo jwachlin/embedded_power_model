@@ -99,10 +99,25 @@ class Source:
     self.voltage_history = []
     self.current_history_ma = []
 
-class LithiumBattery(Source):
+class LithiumIonBattery(Source):
 
   soc_table = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 100.0]
   cell_voltage_table = [2.25, 3.5, 3.65, 3.72, 3.73, 3.75, 3.76, 3.77, 3.78, 3.85, 4.1, 4.25]
+
+  def get_current_voltage(self, total_current_ma=0.0):
+    soc = (self.current_charge_mAh / self.capacity_mAh)*100.0
+    cell_voltage = self.cell_voltage_table[-1]
+    for i in range(len(self.soc_table)-1):
+      if (soc >= self.soc_table[i]) and (soc < self.soc_table[i+1]):
+        cell_voltage = self.cell_voltage_table[i] + ((self.cell_voltage_table[i+1]-self.cell_voltage_table[i])/(self.soc_table[i+1]-self.soc_table[i])) * (soc-self.soc_table[i])
+    
+    cell_voltage = cell_voltage - self.internal_resistance_ohm*(total_current_ma*0.001)
+    return self.number_cells * cell_voltage
+  
+class LithiumCoinCellBattery(Source):
+
+  soc_table = [0.0, 5.0, 25.0, 50.0, 95.0, 100.0]
+  cell_voltage_table = [2.0, 2.5, 2.7, 2.8, 3.0, 3.2]
 
   def get_current_voltage(self, total_current_ma=0.0):
     soc = (self.current_charge_mAh / self.capacity_mAh)*100.0
@@ -253,9 +268,69 @@ class EmbeddedSystem:
           print("Error: Source {0} has reached an empty state of charge, at t={1}".format(source.name, current_t))
           break
 
-  def plot(self):
-    # TODO
-    a = 0
+  def plot(self, show_energy_harvest=True, show_power_breakdown=True, show_charge_history=True,
+           show_voltage_history=True, show_current_history=True):
+    if show_energy_harvest:
+      fig = plt.figure()
+      ax = plt.axes()
+      for source in self.sources:
+        ax.plot(source.energy_harvesting.time, source.energy_harvesting.power_history_W, 
+                label = "Charging of source {0} has capacity factor {1:.1f}".format(source.name, source.energy_harvesting.capacity_factor()))
+      plt.title("Energy Harvesting for All Sources")
+      plt.legend()
+      plt.grid()
+      plt.xlabel("Time, s")
+      plt.ylabel("Energy Harvesting Power, W")
+
+    if show_power_breakdown:
+      fig = plt.figure()
+      ax = plt.axes()
+      ax.plot(self.time, self.system_power_mW, label="System Power")
+      for source in self.sources:
+          battery_power = np.multiply(np.array(source.current_history_ma),np.array(source.voltage_history))
+          plt.plot(source.time, battery_power, label = "Power from {0}".format(source.name))
+      plt.title("Total System Power and Power from All Sources")
+      plt.legend()
+      plt.grid()
+      plt.xlabel("Time, s")
+      plt.ylabel("Power, mW")
+
+    if show_charge_history:
+      fig = plt.figure()
+      ax = plt.axes()
+      for source in self.sources:
+          ax.plot(source.charge_history_time, source.charge_history_mAh, label = "Charge history for {0}".format(source.name))
+      plt.title("Charge History of All Sources")
+      plt.legend()
+      plt.grid()
+      plt.xlabel("Time, s")
+      plt.ylabel("Energy Capacity, mAh")
+
+    if show_voltage_history:
+      fig = plt.figure()
+      ax = plt.axes()
+      for source in self.sources:
+          ax.plot(source.time, source.voltage_history, label = "Voltage history for {0}".format(source.name))
+      plt.title("Voltage of All Sources")
+      plt.legend()
+      plt.grid()
+      plt.xlabel("Time, s")
+      plt.ylabel("Source Voltage, V")
+
+    if show_current_history:
+      fig = plt.figure()
+      ax = plt.axes()
+      for source in self.sources:
+          ax.plot(source.time, source.current_history_ma, label = "Current history for {0}".format(source.name))
+          for reg in source.regulators:
+              ax.plot(source.time, reg.total_regulator_output_current_ma, label = "Current history for regulator {0} on source {1}".format(reg.name, source.name))
+      plt.title("Current of All Sources and Regulators")
+      plt.legend()
+      plt.grid()
+      plt.xlabel("Time, s")
+      plt.ylabel("Current, mA")
+
+    plt.show()
   
   def print_summary(self):
 
@@ -273,10 +348,10 @@ class EmbeddedSystem:
       if source.energy_harvesting is not None:
         if source.current_charge_mAh > source.initial_charge_mAh:
           print("Charge of source {0} has increased by {1:.2f}% to {2:.2f}% total state of charge".format(source.name, 
-                    100.0*(source.current_charge_mAh-source.initial_charge_mAh)/source.initial_charge_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
+                    100.0*(source.current_charge_mAh-source.initial_charge_mAh)/source.capacity_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
         else:
           print("Charge of source {0} has decreased by {1:.2f}% to {2:.2f}% total state of charge".format(source.name, 
-                    100.0*(source.initial_charge_mAh-source.current_charge_mAh)/source.current_charge_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
+                    100.0*(source.initial_charge_mAh-source.current_charge_mAh)/source.capacity_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
           
       else:
         # Battery life is computed assuming this section is meaningfully long and we calculate

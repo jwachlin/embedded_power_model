@@ -15,10 +15,6 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
-import matplotlib.pyplot as plt
-plt.style.use('seaborn-whitegrid')
-import numpy as np
 import embedded_power_model as epm
 
 if __name__ == "__main__":
@@ -59,73 +55,15 @@ if __name__ == "__main__":
     reg_1v8 = epm.VoltageRegulator(name = "1.8V Rail", output_voltage=1.8, is_switching=False, threads=[baro_thread], quiescent_current_ma = 0.06)
 
     # Then, set up all sources and energy harvesting
-    source = epm.LithiumBattery(name = "1Ah, 2S Li-ion", number_cells=2,regulators=[reg_1v8, reg_3v3],capacity_mAh=1000.0,initial_charge_mAh=750.0, 
+    source = epm.LithiumIonBattery(name = "1Ah, 2S Li-ion", number_cells=2,regulators=[reg_1v8, reg_3v3],capacity_mAh=1000.0,initial_charge_mAh=750.0, 
                                 internal_resistance_ohm=0.065, energy_harvesting=epm.SolarPanel(rated_power_W=1.5,t_offset_sec=30000.0))
 
 
     this_sys = epm.EmbeddedSystem(name="Example", sources = [source])
 
     
-    this_sys.power_profile(sim_time_sec=3600.0, record_time_history=True)
+    this_sys.power_profile(sim_time_sec=3*86400.0, record_time_history=True)
 
     this_sys.print_summary()
 
-    fig = plt.figure()
-    ax = plt.axes()
-    ax.plot(this_sys.sources[0].energy_harvesting.time, this_sys.sources[0].energy_harvesting.power_history_W)
-    plt.title("Solar Power Available. Capacity Factor: {0:.2f}" .format(this_sys.sources[0].energy_harvesting.capacity_factor()))
-    plt.xlabel("Time, s")
-    plt.ylabel("Power, W")
-
-    fig = plt.figure()
-    ax = plt.axes()
-    ax.plot(this_sys.sources[0].energy_harvesting.time, this_sys.sources[0].energy_harvesting.random_walk_vals)
-    plt.title("Random Walk")
-    plt.xlabel("Time, s")
-    plt.ylabel("Random Walk Val")
-    
-    fig = plt.figure()
-    ax = plt.axes()
-    ax.plot(this_sys.time, this_sys.system_power_mW, label="System Power")
-    for source in this_sys.sources:
-        battery_power = np.multiply(np.array(source.current_history_ma),np.array(source.voltage_history))
-        plt.plot(source.time, battery_power, label = "Power from {0}".format(source.name))
-    plt.legend()
-    plt.xlabel("Time, s")
-    plt.ylabel("Power, mW")
-
-    fig = plt.figure()
-    ax = plt.axes()
-    for source in this_sys.sources:
-        ax.plot(source.charge_history_time, source.charge_history_mAh, 'k.-', label = "Charge history for {0}".format(source.name))
-    plt.legend()
-    plt.xlabel("Time, s")
-    plt.ylabel("Energy Capacity, mAh")
-
-    fig = plt.figure()
-    ax = plt.axes()
-    for source in this_sys.sources:
-        ax.plot(source.time, source.voltage_history, label = "Voltage history for {0}".format(source.name))
-    plt.legend()
-    plt.xlabel("Time, s")
-    plt.ylabel("Source Voltage, V")
-
-    fig = plt.figure()
-    ax = plt.axes()
-    for source in this_sys.sources:
-        ax.plot(source.time, source.current_history_ma, label = "Current history for {0}".format(source.name))
-    plt.legend()
-    plt.xlabel("Time, s")
-    plt.ylabel("Battery Current, mA")
-
-    fig = plt.figure()
-    ax = plt.axes()
-    for source in this_sys.sources:
-        ax.plot(source.time, source.current_history_ma, label = "Current history for {0}".format(source.name))
-        for reg in source.regulators:
-            ax.plot(source.time, reg.total_regulator_output_current_ma, label = "Current history for regulator {0} on source {1}".format(reg.name, source.name))
-    plt.legend()
-    plt.xlabel("Time, s")
-    plt.ylabel("Current, mA")
-
-    plt.show()
+    this_sys.plot()
