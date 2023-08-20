@@ -1,4 +1,4 @@
-# Copyright 2022  Jacob Wachlin
+# Copyright 2023  Jacob Wachlin
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software 
 # and associated documentation files (the "Software"), to deal in the Software without restriction, 
@@ -16,6 +16,8 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import numpy as np
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-whitegrid')
 
 class Component:
   def __init__(self, name, mode_name, current_ma):
@@ -81,12 +83,13 @@ class SolarPanel:
 ######### Sources #########
 
 class Source:
-  def __init__(self, name, number_cells, regulators, capacity_mAh, current_charge_mAh, internal_resistance_ohm, energy_harvesting=None):
+  def __init__(self, name, number_cells, regulators, capacity_mAh, initial_charge_mAh, internal_resistance_ohm, energy_harvesting=None):
     self.name = name
     self.number_cells = number_cells
     self.regulators = regulators
     self.capacity_mAh = capacity_mAh
-    self.current_charge_mAh = current_charge_mAh
+    self.initial_charge_mAh = initial_charge_mAh
+    self.current_charge_mAh = initial_charge_mAh
     self.internal_resistance_ohm = internal_resistance_ohm
     self.energy_harvesting = energy_harvesting
     self.net_energy_J = 0.0
@@ -115,9 +118,11 @@ class LithiumBattery(Source):
 ######### Regulators Provide Voltage Rails #########
 
 class VoltageRegulator:
-  def __init__(self, name, output_voltage, threads, efficiency=0.0, max_current_output_ma=5000.0, dropout_voltage=0.0):
+  def __init__(self, name, output_voltage, threads, quiescent_current_ma, is_switching, efficiency=70.0, max_current_output_ma=None, dropout_voltage=None):
     self.name = name
     self.threads = threads
+    self.quiescent_current_ma = quiescent_current_ma
+    self.is_switching = is_switching
     self.output_voltage = output_voltage
     self.efficiency = efficiency
     self.max_current_output_ma = max_current_output_ma
@@ -135,8 +140,10 @@ class EmbeddedSystem:
     self.sources = sources
     self.time = []
     self.system_power_mW = []
+    self.sim_time_sec = None
 
   def power_profile(self, sim_time_sec, record_time_history=False):
+    self.sim_time_sec=sim_time_sec
     for source in self.sources:
       source.net_energy_J = 0.0
     current_t = 0.0
@@ -162,35 +169,35 @@ class EmbeddedSystem:
             for component in thread.stages[thread.stage_index].components:
               total_regulator_output_current_ma = total_regulator_output_current_ma + component.current_ma
           
-          # Sum up over regulators
-          regulator_battery_current = total_regulator_output_current_ma + total_regulator_output_current_ma*((regulator.output_voltage / source.get_current_voltage(0.0)) - 1.0)*regulator.efficiency
-          total_source_current_ma = total_source_current_ma + regulator_battery_current
+          # Check for violations of capability
+          if regulator.max_current_output_ma is not None and total_regulator_output_current_ma > regulator.max_current_output_ma:
+            print("Error: Regulator {0} cannot provide enough current, at t={1}".format(regulator.name, current_t))
+
+          # Sum up over regulators, with quiescent current
+          total_source_current_ma = total_source_current_ma + regulator.quiescent_current_ma 
+          if regulator.is_switching:
+            # Compute with efficiency
+            # TODO not quite right due to lowered source voltage
+            total_source_current_ma = total_source_current_ma + (regulator.output_voltage / (source.get_current_voltage(total_regulator_output_current_ma) * regulator.efficiency))*total_regulator_output_current_ma
+            # TODO future do efficiency curve vs. current
+          else:
+            # Linear regulator, so output current is input current
+            total_source_current_ma = total_source_current_ma + total_regulator_output_current_ma
 
           # Store per regulator
           if record_time_history:
             regulator.total_regulator_output_current_ma.append(total_regulator_output_current_ma)
 
+        source_voltage = source.get_current_voltage(total_source_current_ma)
         # Calculate power in and out of sources
-        total_system_power_mW = total_system_power_mW + (source.get_current_voltage(total_source_current_ma) * total_source_current_ma)
-
-        # Energy harvesting if added
-        if source.energy_harvesting is not None:
-          harvested_power_W = source.energy_harvesting.calculate_power(current_t)
-          if(source.current_charge_mAh < source.capacity_mAh):
-            J_charged = source.energy_harvesting.charge_efficiency * shortest_dt * harvested_power_W
-            source.net_energy_J = source.net_energy_J + J_charged
-            source.current_charge_mAh = source.current_charge_mAh + 0.277778*(J_charged)
-
-        J_discharged = shortest_dt * source.get_current_voltage(total_source_current_ma) * (total_source_current_ma * 0.001)
-        source.net_energy_J = source.net_energy_J - J_discharged
-        source.current_charge_mAh = source.current_charge_mAh - 0.277778*J_discharged
+        total_system_power_mW = total_system_power_mW + (source_voltage * total_source_current_ma)
 
         # Log per source
         if record_time_history:
           source.time.append(current_t)
           source.charge_history_time.append(current_t)
           source.charge_history_mAh.append(source.current_charge_mAh)
-          source.voltage_history.append(source.get_current_voltage(total_source_current_ma))
+          source.voltage_history.append(source_voltage)
           source.current_history_ma.append(total_source_current_ma)
 
       # Log for whole system
@@ -213,6 +220,21 @@ class EmbeddedSystem:
           source.voltage_history.append(source.voltage_history[-1])
           source.current_history_ma.append(source.current_history_ma[-1])
 
+      # Energy harvesting if added, after logging
+        if source.energy_harvesting is not None:
+          harvested_power_W = source.energy_harvesting.calculate_power(current_t)
+          if(source.current_charge_mAh < source.capacity_mAh):
+            J_charged = source.energy_harvesting.charge_efficiency * shortest_dt * harvested_power_W
+            source.net_energy_J = source.net_energy_J + J_charged
+            source.current_charge_mAh = source.current_charge_mAh + (0.277778*J_charged/source_voltage)
+
+        J_discharged = shortest_dt * source_voltage * (total_source_current_ma * 0.001)
+        source.net_energy_J = source.net_energy_J - J_discharged
+        source.current_charge_mAh = source.current_charge_mAh - (0.277778*J_discharged/source_voltage)
+
+        if source.current_charge_mAh > source.capacity_mAh:
+          source.current_charge_mAh = source.capacity_mAh
+
       # Update thread timing and stages
       for source in self.sources:
         for regulator in source.regulators:
@@ -230,3 +252,40 @@ class EmbeddedSystem:
         if source.current_charge_mAh <= 0.0:
           print("Error: Source {0} has reached an empty state of charge, at t={1}".format(source.name, current_t))
           break
+
+  def plot(self):
+    # TODO
+    a = 0
+  
+  def print_summary(self):
+
+    print(".........................................................")
+    print("Source, Regulator, Regulator Output Voltage (V) , Regulator Total Current (mAh), Run Time (s)")
+    for source in self.sources:
+      for reg in source.regulators:
+        current_total_mAh = 0.0
+        for i in range(1,len(reg.total_regulator_output_current_ma)):
+          current_total_mAh = current_total_mAh + (reg.total_regulator_output_current_ma[i])*(source.time[i] - source.time[i-1])/3600.0
+        print("{0}, {1}, {2:.2f}, {3:.4f}, {4:.2f}".format(source.name, reg.name, reg.output_voltage, current_total_mAh, self.sim_time_sec))
+    print(".........................................................")
+
+    for source in self.sources:
+      if source.energy_harvesting is not None:
+        if source.current_charge_mAh > source.initial_charge_mAh:
+          print("Charge of source {0} has increased by {1:.2f}% to {2:.2f}% total state of charge".format(source.name, 
+                    100.0*(source.current_charge_mAh-source.initial_charge_mAh)/source.initial_charge_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
+        else:
+          print("Charge of source {0} has decreased by {1:.2f}% to {2:.2f}% total state of charge".format(source.name, 
+                    100.0*(source.initial_charge_mAh-source.current_charge_mAh)/source.current_charge_mAh, 100.0*source.current_charge_mAh/source.capacity_mAh))
+          
+      else:
+        # Battery life is computed assuming this section is meaningfully long and we calculate
+        # total battery life from a full battery
+        drain_mAh_per_second = (source.initial_charge_mAh - source.current_charge_mAh) / self.sim_time_sec
+        battery_life_seconds = source.capacity_mAh / drain_mAh_per_second
+        if battery_life_seconds < 24*3600:
+          print("Battery life is {0:.2f} hours".format(battery_life_seconds / 3600.0))
+        elif battery_life_seconds < 365*24*3600:
+          print("Battery life is {0:.2f} days".format(battery_life_seconds / (24.0*3600.0)))
+        else:
+          print("Battery life is {0:.2f} years".format(battery_life_seconds / (24.0*3600.0*365.0)))

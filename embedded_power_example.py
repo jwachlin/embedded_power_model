@@ -1,4 +1,4 @@
-# Copyright 2022  Jacob Wachlin
+# Copyright 2023  Jacob Wachlin
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software 
 # and associated documentation files (the "Software"), to deal in the Software without restriction, 
@@ -55,18 +55,20 @@ if __name__ == "__main__":
     ])
 
     # Next, define all power rails based on their voltage regulators
-    reg_3v3 = epm.VoltageRegulator(name = "3.3V Rail", output_voltage=3.3, efficiency=0.8, threads=[accel_thread,led_thread])
-    reg_1v8 = epm.VoltageRegulator(name = "1.8V Rail", output_voltage=1.8, efficiency=0.8, threads=[baro_thread])
+    reg_3v3 = epm.VoltageRegulator(name = "3.3V Rail", output_voltage=3.3, is_switching=True, efficiency=0.9, threads=[accel_thread,led_thread], quiescent_current_ma = 0.1)
+    reg_1v8 = epm.VoltageRegulator(name = "1.8V Rail", output_voltage=1.8, is_switching=False, threads=[baro_thread], quiescent_current_ma = 0.06)
 
     # Then, set up all sources and energy harvesting
-    source = epm.LithiumBattery(name = "1Ah Li-ion", number_cells=1,regulators=[reg_1v8, reg_3v3],capacity_mAh=1000.0,current_charge_mAh=500.0, 
+    source = epm.LithiumBattery(name = "1Ah, 2S Li-ion", number_cells=2,regulators=[reg_1v8, reg_3v3],capacity_mAh=1000.0,initial_charge_mAh=750.0, 
                                 internal_resistance_ohm=0.065, energy_harvesting=epm.SolarPanel(rated_power_W=1.5,t_offset_sec=30000.0))
 
 
     this_sys = epm.EmbeddedSystem(name="Example", sources = [source])
 
     
-    this_sys.power_profile(sim_time_sec=30.0, record_time_history=True)
+    this_sys.power_profile(sim_time_sec=3600.0, record_time_history=True)
+
+    this_sys.print_summary()
 
     fig = plt.figure()
     ax = plt.axes()
@@ -96,6 +98,7 @@ if __name__ == "__main__":
     ax = plt.axes()
     for source in this_sys.sources:
         ax.plot(source.charge_history_time, source.charge_history_mAh, 'k.-', label = "Charge history for {0}".format(source.name))
+    plt.legend()
     plt.xlabel("Time, s")
     plt.ylabel("Energy Capacity, mAh")
 
@@ -103,6 +106,7 @@ if __name__ == "__main__":
     ax = plt.axes()
     for source in this_sys.sources:
         ax.plot(source.time, source.voltage_history, label = "Voltage history for {0}".format(source.name))
+    plt.legend()
     plt.xlabel("Time, s")
     plt.ylabel("Source Voltage, V")
 
@@ -110,7 +114,18 @@ if __name__ == "__main__":
     ax = plt.axes()
     for source in this_sys.sources:
         ax.plot(source.time, source.current_history_ma, label = "Current history for {0}".format(source.name))
+    plt.legend()
     plt.xlabel("Time, s")
     plt.ylabel("Battery Current, mA")
+
+    fig = plt.figure()
+    ax = plt.axes()
+    for source in this_sys.sources:
+        ax.plot(source.time, source.current_history_ma, label = "Current history for {0}".format(source.name))
+        for reg in source.regulators:
+            ax.plot(source.time, reg.total_regulator_output_current_ma, label = "Current history for regulator {0} on source {1}".format(reg.name, source.name))
+    plt.legend()
+    plt.xlabel("Time, s")
+    plt.ylabel("Current, mA")
 
     plt.show()
