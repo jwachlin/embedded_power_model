@@ -17,7 +17,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-plt.style.use('seaborn-whitegrid')
 
 class Component:
   def __init__(self, name, mode_name, current_ma):
@@ -235,7 +234,8 @@ class EmbeddedSystem:
           source.voltage_history.append(source.voltage_history[-1])
           source.current_history_ma.append(source.current_history_ma[-1])
 
-      # Energy harvesting if added, after logging
+      for source in self.sources:
+        # Energy harvesting if added, after logging
         if source.energy_harvesting is not None:
           harvested_power_W = source.energy_harvesting.calculate_power(current_t)
           if(source.current_charge_mAh < source.capacity_mAh):
@@ -271,20 +271,27 @@ class EmbeddedSystem:
   def plot(self, show_energy_harvest=True, show_power_breakdown=True, show_charge_history=True,
            show_voltage_history=True, show_current_history=True):
     if show_energy_harvest:
-      fig = plt.figure()
-      ax = plt.axes()
+      is_any_harvesting = False
       for source in self.sources:
-        ax.plot(source.energy_harvesting.time, source.energy_harvesting.power_history_W, 
-                label = "Charging of source {0} has capacity factor {1:.1f}".format(source.name, source.energy_harvesting.capacity_factor()))
-      plt.title("Energy Harvesting for All Sources")
-      plt.legend()
-      plt.grid()
-      plt.xlabel("Time, s")
-      plt.ylabel("Energy Harvesting Power, W")
+        if source.energy_harvesting is not None:
+          is_any_harvesting = True
+
+      if is_any_harvesting:
+        fig = plt.figure()
+        ax = plt.axes()
+        for source in self.sources:
+          if source.energy_harvesting is not None:
+            ax.plot(source.energy_harvesting.time, source.energy_harvesting.power_history_W, 
+                  label = "Charging of source {0} has capacity factor {1:.1f}".format(source.name, source.energy_harvesting.capacity_factor()))
+        plt.title("Energy Harvesting for All Sources")
+        plt.legend()
+        plt.grid()
+        plt.xlabel("Time, s")
+        plt.ylabel("Energy Harvesting Power, W")
 
     if show_power_breakdown:
       fig = plt.figure()
-      ax = plt.axes()
+      ax = plt.axes() 
       ax.plot(self.time, self.system_power_mW, label="System Power")
       for source in self.sources:
           battery_power = np.multiply(np.array(source.current_history_ma),np.array(source.voltage_history))
