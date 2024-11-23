@@ -64,6 +64,7 @@ if __name__ == "__main__":
     
     this_sys.power_profile(sim_time_sec=3*86400.0, record_time_history=True)
 
+    this_sys.export_to_csv("ESP_32_example.csv")
     this_sys.print_summary()
 
     this_sys.plot()

@@ -154,6 +154,7 @@ class EmbeddedSystem:
     self.sources = sources
     self.time = []
     self.system_power_mW = []
+    self.system_current_mA = []
     self.sim_time_sec = None
 
   def power_profile(self, sim_time_sec, record_time_history=False):
@@ -175,6 +176,7 @@ class EmbeddedSystem:
       
       # Calculate energy use by each thread
       total_system_power_mW = 0.0
+      total_system_power_mA = 0.0
       for source in self.sources:
         total_source_current_ma = 0.0
         for regulator in source.regulators:
@@ -205,6 +207,7 @@ class EmbeddedSystem:
         source_voltage = source.get_current_voltage(total_source_current_ma)
         # Calculate power in and out of sources
         total_system_power_mW = total_system_power_mW + (source_voltage * total_source_current_ma)
+        total_system_power_mA = total_system_power_mA + total_source_current_ma
 
         # Log per source
         if record_time_history:
@@ -218,6 +221,7 @@ class EmbeddedSystem:
       if record_time_history:
         self.time.append(current_t)
         self.system_power_mW.append(total_system_power_mW)
+        self.system_current_mA.append(total_system_power_mA)
 
       # Increment time
       current_t = current_t + shortest_dt
@@ -226,6 +230,7 @@ class EmbeddedSystem:
       if record_time_history:
         self.time.append(current_t)
         self.system_power_mW.append(total_system_power_mW)
+        self.system_current_mA.append(total_system_power_mA)
 
         for source in self.sources:
           for regulator in source.regulators:
@@ -268,6 +273,14 @@ class EmbeddedSystem:
           print("Error: Source {0} has reached an empty state of charge, at t={1}".format(source.name, current_t))
           break
 
+  def export_to_csv(self, filename):
+    if len(self.time) > 0:
+      csv_output = np.transpose(np.array([np.array(self.time), np.array(self.system_current_mA)]))
+      np.savetxt(filename, csv_output, header='time [s], current [mA]', delimiter = ", ", comments='')
+    else:
+      print("In order to export profiles, you must set record_time_history to True")
+
+  
   def plot(self, show_energy_harvest=True, show_power_breakdown=True, show_charge_history=True,
            show_voltage_history=True, show_current_history=True):
     if show_energy_harvest:
